@@ -12,7 +12,7 @@ const targetPattern = actions.getInput('target', { required: true });
 const owner = actions.getInput('owner', { required: false });
 const childFolder = actions.getInput('child_folder', { required: false });
 const overwrite = actions.getInput('overwrite', { required: false }) === 'true';
-let filename = actions.getInput('name', { required: false });
+const overrideFilename = actions.getInput('name', { required: false }); // only used when single file match
 
 const credentialsJSON = JSON.parse(Buffer.from(credentials, 'base64').toString());
 const scopes = ['https://www.googleapis.com/auth/drive.file'];
@@ -25,7 +25,6 @@ async function getUploadFolderId() {
         return parentFolderId;
     }
 
-    // Check if child folder already exists and is unique
     const { data: { files } } = await drive.files.list({
         q: `name='${childFolder}' and '${parentFolderId}' in parents and trashed=false`,
         fields: 'files(id)',
@@ -70,41 +69,24 @@ async function getFileId(targetFilename, folderId) {
     return null;
 }
 
-async function main() {
-    const uploadFolderId = await getUploadFolderId();
-
-    const matchedFiles = glob.sync(targetPattern);
-    if (matchedFiles.length === 0) {
-        throw new Error(`No files matched pattern: ${targetPattern}`);
-    }
-
-    const target = matchedFiles[0];
-    if (!filename) {
-        filename = path.basename(target);
-    }
-
-    let fileId = null;
-
-    if (overwrite) {
-        fileId = await getFileId(filename, uploadFolderId);
-    }
-
+async function uploadFile(target, uploadFolderId, finalName) {
     const fileData = {
         body: fs.createReadStream(target),
     };
 
+    let fileId = null;
+    if (overwrite) {
+        fileId = await getFileId(finalName, uploadFolderId);
+    }
+
     if (fileId === null) {
-        if (overwrite) {
-            actions.info(`File ${filename} does not exist yet. Creating it.`);
-        } else {
-            actions.info(`Creating file ${filename}.`);
-        }
+        actions.info(`Creating file: ${finalName}`);
         const fileMetadata = {
-            name: filename,
+            name: finalName,
             parents: [uploadFolderId],
         };
 
-        return drive.files.create({
+        await drive.files.create({
             resource: fileMetadata,
             media: fileData,
             uploadType: 'multipart',
@@ -112,12 +94,31 @@ async function main() {
             supportsAllDrives: true,
         });
     } else {
-        actions.info(`File ${filename} already exists. Updating it.`);
-        return drive.files.update({
+        actions.info(`Updating existing file: ${finalName}`);
+        await drive.files.update({
             fileId,
             media: fileData,
         });
     }
+}
+
+async function main() {
+    const uploadFolderId = await getUploadFolderId();
+    const matchedFiles = glob.sync(targetPattern);
+
+    if (matchedFiles.length === 0) {
+        throw new Error(`No files matched pattern: ${targetPattern}`);
+    }
+
+    for (const file of matchedFiles) {
+        const finalName = overrideFilename && matchedFiles.length === 1
+            ? overrideFilename
+            : path.basename(file);
+
+        await uploadFile(file, uploadFolderId, finalName);
+    }
+
+    actions.info(`Uploaded ${matchedFiles.length} file(s) successfully.`);
 }
 
 main().catch((error) => actions.setFailed(error));
