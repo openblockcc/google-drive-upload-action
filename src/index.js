@@ -1,12 +1,14 @@
 /* eslint-disable no-console */
 const fs = require('fs');
+const path = require('path');
+const glob = require('glob');
 
 const actions = require('@actions/core');
 const { google } = require('googleapis');
 
 const credentials = actions.getInput('credentials', { required: true });
 const parentFolderId = actions.getInput('parent_folder_id', { required: true });
-const target = actions.getInput('target', { required: true });
+const targetPattern = actions.getInput('target', { required: true });
 const owner = actions.getInput('owner', { required: false });
 const childFolder = actions.getInput('child_folder', { required: false });
 const overwrite = actions.getInput('overwrite', { required: false }) === 'true';
@@ -71,8 +73,14 @@ async function getFileId(targetFilename, folderId) {
 async function main() {
     const uploadFolderId = await getUploadFolderId();
 
+    const matchedFiles = glob.sync(targetPattern);
+    if (matchedFiles.length === 0) {
+        throw new Error(`No files matched pattern: ${targetPattern}`);
+    }
+
+    const target = matchedFiles[0];
     if (!filename) {
-        filename = target.split('/').pop();
+        filename = path.basename(target);
     }
 
     let fileId = null;
