@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
 const fs = require('fs');
 const path = require('path');
-const glob = require('glob');
 
 const actions = require('@actions/core');
+const glob = require('glob');
 const { google } = require('googleapis');
 
 const credentials = actions.getInput('credentials', { required: true });
@@ -75,6 +75,7 @@ async function uploadFile(target, uploadFolderId, finalName) {
     };
 
     let fileId = null;
+
     if (overwrite) {
         fileId = await getFileId(finalName, uploadFolderId);
     }
